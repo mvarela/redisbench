@@ -109,7 +109,7 @@
 (defn -main
   [& args]
   (let [keys-source (gen-keys 500000 10)
-        payloads-source (gen-payloads 1000 10000)
+        payloads-source (gen-payloads 1000 1000)
         added-keys (atom #{})
         add-counter (atom 0)
         del-counter (atom 0)
@@ -138,7 +138,6 @@
 ;;     (Thread/sleep 300000)
 ;;     (shutdown-agents)
     (wcar* (car/flushall))))
-
 
 
 ;; (def keys-source (gen-keys 100000 20))
