@@ -3,11 +3,18 @@
   (:require [clojure.core.async :as async :refer [>! <! >!! <!! go go-loop thread chan close!]]
             [taoensso.timbre :as log]
             [taoensso.carmine :as car]
+            [criterium.core :as criterium]
+            [clojurewerkz.spyglass.client :as c]
             [clojure.java.io :as io :refer [file  input-stream]]))
 
 
-(def server1-conn {:spec {:redis-host "localhost" :redis-port 6379}}) ; See `wcar` docstring for opts
+;; redis stuff
+(def server1-conn {:spec {:redis-host "localhost" :redis-port 7000}}) ; See `wcar` docstring for opts
 (defmacro wcar* [& body] `(car/wcar server1-conn ~@body))
+
+;;memcached stuff
+;;(def tmc (c/bin-connection "127.0.0.1:11211"))
+
 
 (defn uuid [] (str (java.util.UUID/randomUUID)))
 
@@ -29,7 +36,7 @@
   {:pre [(pos? len)
          (pos? n)]}
   (with-open [in (input-stream (file "/dev/urandom"))]
-    (let [read-chunk #(let [buf (byte-array 100)]
+    (let [read-chunk #(let [buf (byte-array len)]
                         (.read in buf)
                         buf)]
       (vec (take n (repeatedly read-chunk))))))
@@ -40,6 +47,7 @@
         (let [k (rand-nth keys-source)
               p (rand-nth payloads-source)]
           (wcar* (car/set k p))
+          ;(c/set tmc k 3600 p)
           (swap! add-counter-atom inc)
           (>! channel k)))))
 
@@ -57,16 +65,23 @@
         (while @continue?
           (let [k (rand-nth (vec @keys-atom))]
             (when k
-              (do (wcar* (car/unlink k))
+              (do
+                  ;(c/delete tmc k)
+                  (wcar* (car/unlink k))
                   (swap! del-counter-atom inc)
                   (swap! keys-atom disj k)))
             (Thread/sleep 100))))))
+
+
 
 (defn launch-logger
   [add-counter read-counter del-counter continue?]
   (thread
     (while @continue?
-      (let [dbsize (wcar* (car/dbsize))]
+      (let [dbsize  #_(-> (c/get-stats tmc)
+                       vals
+                       (#(into {} %))
+                       (get "total_items"))  (wcar* (car/dbsize))]
         (log/info (str "Added " @add-counter
                        ", read " @read-counter
                        ", deleted " @del-counter
@@ -77,36 +92,65 @@
         (Thread/sleep 1000)))))
 
 (defn launch-reader
-  [keys-atom read-atom continue?]
+  [keys-source read-atom continue?]
   (go
     (Thread/sleep 500)
     (while @continue?
-      (when-let [key (when (> (count @keys-atom) 0)
-                       (rand-nth (vec @keys-atom)))]
+      (when-let [key (rand-nth keys-source)]
           (wcar* car/get key)
+          ;; (c/get tmc key)
           (swap! read-atom inc)))))
+
+(defn put-all-keys [ks vs]
+  (doseq [k ks]
+    (wcar* (car/set k (rand-nth vs)))))
+
 
 (defn -main
   [& args]
-  (let [keys-source (gen-keys 500000 2)
-        payloads-source (gen-payloads 10000 1000)
+  (let [keys-source (gen-keys 500000 10)
+        payloads-source (gen-payloads 1000 10000)
         added-keys (atom #{})
         add-counter (atom 0)
         del-counter (atom 0)
         read-counter (atom 0)
+        timer (atom 0)
         continue? (atom true)
         channel (chan 100)]
-    (dotimes [n 2](launch-writer channel keys-source payloads-source add-counter))
-    (launch-updater channel added-keys)
-    (launch-remover added-keys del-counter continue?)
-    (dotimes [n 3] (launch-reader added-keys read-counter continue?))
-    (launch-logger add-counter read-counter del-counter continue?)
-    (Thread/sleep 300000)
-    (shutdown-agents)
+    (wcar* (car/flushall))
+    (log/info "Starting...")
+    (log/info (str "Inserting " (count keys-source) " keys with "
+                   (count (first payloads-source)) " bytes each..."))
+    (reset! timer (System/currentTimeMillis))
+    (put-all-keys keys-source payloads-source)
+    (let [time-consumed (- (System/currentTimeMillis) @timer)
+          avg (float (/ time-consumed (count keys-source)))]
+      (log/info (str "Inserts took " (double (/ time-consumed 1000)) "s (" avg "ms per insert)")))
+    (log/info "Starting read benchmark...")
+    (criterium/with-progress-reporting
+      (criterium/quick-bench (wcar* (car/get (rand-nth keys-source)))))
+;;     (dotimes [n 2](launch-writer channel keys-source payloads-source add-counter))
+;;     (launch-updater channel added-keys)
+;;     (launch-remover added-keys del-counter continue?)
+;; ;    (dotimes [n 3] (launch-reader keys-source read-counter continue?))
+;;     (Thread/sleep 10000)
+;;     (launch-logger add-counter read-counter del-counter continue?)
+;;     (Thread/sleep 300000)
+;;     (shutdown-agents)
     (wcar* (car/flushall))))
 
 
 
+;; (def keys-source (gen-keys 100000 20))
+;; (def payloads-source (gen-payloads 10 100000))
+
+;; (dotimes [n  100000]
+;;   (wcar* (car/set (rand-nth keys-source) (rand-nth payloads-source))))
+
+;; (criterium/with-progress-reporting
+;;   (criterium/quick-bench (wcar* (car/get (rand-nth keys-source)))))
+
+;; (clojure.pprint/pprint *1)
 
 ;; With 10KB payloads, and 400K keys in the DB / key multiplier 1 / deleting slowly:
 ;; 18-11-15 16:15:55 Lambdabeast2 INFO [redisbench.core:70] - Added 59338, deleted 11 - 399977 keys in db
