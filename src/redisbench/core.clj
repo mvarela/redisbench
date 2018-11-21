@@ -43,24 +43,24 @@
 
 (defn launch-writer
   [channel keys-source payloads-source add-counter-atom]
-  (go (while channel
+  (thread (while channel
         (let [k (rand-nth keys-source)
               p (rand-nth payloads-source)]
           (wcar* (car/set k p))
           ;(c/set tmc k 3600 p)
           (swap! add-counter-atom inc)
-          (>! channel k)))))
+          (>!! channel k)))))
 
 (defn launch-updater
   [channel keys-atom]
-  (go-loop []
-    (let [k (<! channel)]
-      (swap! keys-atom conj k)
-      (recur))))
+  (thread (loop []
+            (let [k (<!! channel)]
+              (swap! keys-atom conj k)
+              (recur)))))
 
 (defn launch-remover
   [keys-atom del-counter-atom continue?]
-  (go (do
+  (thread (do
         (Thread/sleep 1000)
         (while @continue?
           (let [k (rand-nth (vec @keys-atom))]
@@ -70,7 +70,7 @@
                   (wcar* (car/unlink k))
                   (swap! del-counter-atom inc)
                   (swap! keys-atom disj k)))
-            (Thread/sleep 100))))))
+            (Thread/sleep 20))))))
 
 
 
@@ -93,13 +93,13 @@
 
 (defn launch-reader
   [keys-source read-atom continue?]
-  (go
-    (Thread/sleep 500)
-    (while @continue?
-      (when-let [key (rand-nth keys-source)]
-          (wcar* car/get key)
-          ;; (c/get tmc key)
-          (swap! read-atom inc)))))
+  (thread (do 
+            (Thread/sleep 500)
+            (while @continue?
+              (when-let [key (rand-nth keys-source)]
+                (wcar* car/get key)
+                ;; (c/get tmc key)
+                (swap! read-atom inc))))))
 
 (defn put-all-keys [ks vs]
   (doseq [k ks]
@@ -158,14 +158,15 @@
     (let [time-consumed (- (System/currentTimeMillis) @timer)
           avg (float (/ time-consumed (count keys-source)))]
       (log/info (str "Deletes took " (double (/ time-consumed 1000)) "s (" avg "ms per delete)")))
-;;     (dotimes [n 2](launch-writer channel keys-source payloads-source add-counter))
-;;     (launch-updater channel added-keys)
-;;     (launch-remover added-keys del-counter continue?)
-;; ;    (dotimes [n 3] (launch-reader keys-source read-counter continue?))
-;;     (Thread/sleep 10000)
-;;     (launch-logger add-counter read-counter del-counter continue?)
-;;     (Thread/sleep 300000)
-;;     (shutdown-agents)
+
+    ;; (dotimes [n 4](launch-writer channel keys-source payloads-source add-counter))
+    ;; (launch-updater channel added-keys)
+    ;; (launch-remover added-keys del-counter continue?)
+    ;; (dotimes [n 3] (launch-reader keys-source read-counter continue?))
+    ;; (Thread/sleep 10000)
+    ;; (launch-logger add-counter read-counter del-counter continue?)
+    (Thread/sleep 300000)
+    (shutdown-agents)
     (wcar* (car/flushall))))
 
 
