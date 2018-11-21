@@ -1,6 +1,17 @@
 # Naive benchmarking...
 
-Removed async code, as there was some issues with threading and reads.
+Made the main benchmark code single-threaded.
+Also changed `go` calls for `thread` calls, which solved the slow reads issue (not enough threads in the pool when using `go` and `go-loop`8-11-21 19:39:50 Lambdabeast2 INFO [redisbench.core:85] - Added 31599, read 222486, deleted 8 - 269545 keys in db
+18-11-21 19:39:51 Lambdabeast2 INFO [redisbench.core:85] - Added 29896, read 224814, deleted 8 - 282911 keys in db
+18-11-21 19:39:52 Lambdabeast2 INFO [redisbench.core:85] - Added 32175, read 214360, deleted 8 - 296616 keys in db
+18-11-21 19:39:53 Lambdabeast2 INFO [redisbench.core:85] - Added 32328, read 218948, deleted 7 - 309273 keys in db
+18-11-21 19:39:54 Lambdabeast2 INFO [redisbench.core:85] - Added 32047, read 217592, deleted 7 - 321201 keys in db
+8-11-21 19:39:50 Lambdabeast2 INFO [redisbench.core:85] - Added 31599, read 222486, deleted 8 - 269545 keys in db
+18-11-21 19:39:51 Lambdabeast2 INFO [redisbench.core:85] - Added 29896, read 224814, deleted 8 - 282911 keys in db
+18-11-21 19:39:52 Lambdabeast2 INFO [redisbench.core:85] - Added 32175, read 214360, deleted 8 - 296616 keys in db
+18-11-21 19:39:53 Lambdabeast2 INFO [redisbench.core:85] - Added 32328, read 218948, deleted 7 - 309273 keys in db
+18-11-21 19:39:54 Lambdabeast2 INFO [redisbench.core:85] - Added 32047, read 217592, deleted 7 - 321201 keys in db
+)
 Added criterium based benchmarking for the reads, and fixed payload size bug.
 
 
